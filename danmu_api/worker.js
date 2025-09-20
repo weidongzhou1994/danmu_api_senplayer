@@ -898,6 +898,14 @@ async function fetchTencentVideo(inputUrl) {
             } else if (content_style.color && content_style.color !== "ffffff") {
               content.color = parseInt(content_style.color.replace("#", ""), 16);
             }
+
+            if (content_style.position) {
+              if (content_style.position === 2) {
+                content.ct = 5;
+              } else if (content_style.position === 3) {
+                content.ct = 4;
+              }
+            }
           } catch (e) {
             // JSON 解析失败，使用默认白色
           }
@@ -1149,6 +1157,11 @@ async function fetchMangoTV(inputUrl) {
             uid: 0,		//发送人的 id
             content: "",
         };
+        if (item.type === 1) {
+          content.ct = 5;
+        } else if (item.type === 2) {
+          content.ct = 4;
+        }
         content.timepoint = item.time / 1000;
         content.content = item.content;
         content.uid = item.uid;
@@ -1576,6 +1589,13 @@ async function fetchYouku(inputUrl) {
             content.timepoint = danmu.playat / 1000;
             if (danmu.propertis?.color) {
               content.color = JSON.parse(danmu.propertis).color;
+            }
+            if (danmu.propertis?.pos) {
+              if (JSON.parse(danmu.propertis).pos === 1) {
+                content.ct = 5;
+              } else if (JSON.parse(danmu.propertis).pos === 2) {
+                content.ct = 4;
+              }
             }
             content.content = danmu.content;
             contents.push(content);
