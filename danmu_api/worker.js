@@ -2638,7 +2638,7 @@ async function searchAnime(url) {
     const process360Animes = animes360.map(async (anime) => {
       let links = [];
       if (anime.cat_name === "电影") {
-        for (const key in Object.keys(anime.playlinks)) {
+        for (const key of Object.keys(anime.playlinks)) {
           if (allowedPlatforms.includes(key)) {
             links.push({
               "name": key,
