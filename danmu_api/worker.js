@@ -1,6 +1,6 @@
 // 全局状态（Cloudflare 和 Vercel 都可能重用实例）
 // ⚠️ 不是持久化存储，每次冷启动会丢失
-const VERSION = "1.1.0";
+const VERSION = "1.1.1";
 let animes = [];
 let episodeIds = [];
 let episodeNum = 10001; // 全局变量，用于自增 ID
@@ -2799,20 +2799,51 @@ async function matchAnime(url, req) {
 
     let resAnime;
     let resEpisode;
-    for (const anime of searchData.animes) {
-      if (anime.animeTitle.includes(title)) {
+
+    if (season && episode) {
+      // 判断剧集
+      for (const anime of searchData.animes) {
+        if (anime.animeTitle.includes(title)) {
+          let originBangumiUrl = new URL(req.url.replace("/match", `bangumi/${anime.bangumiId}`));
+          const bangumiRes = await getBangumi(originBangumiUrl.pathname);
+          const bangumiData = await bangumiRes.json();
+          log("info", "判断剧集", bangumiData);
+          if (bangumiData.bangumi.episodes.length >= episode) {
+            // 先判断season
+            if (matchSeason(anime, title, season)) {
+              resEpisode = bangumiData.bangumi.episodes[episode-1];
+              resAnime = anime;
+              break;
+            }
+          }
+        }
+      }
+    } else {
+      // 判断电影
+      for (const anime of searchData.animes) {
+        const animeTitle = anime.animeTitle.split("(")[0].trim();
+        if (animeTitle === title) {
+          let originBangumiUrl = new URL(req.url.replace("/match", `bangumi/${anime.bangumiId}`));
+          const bangumiRes = await getBangumi(originBangumiUrl.pathname);
+          const bangumiData = await bangumiRes.json();
+          log("info", bangumiData);
+          if (bangumiData.bangumi.episodes.length > 0) {
+            resEpisode = bangumiData.bangumi.episodes[0];
+            resAnime = anime;
+            break;
+          }
+        }
+      }
+    }
+
+    // 如果都没有找到则返回第一个
+    if (!resAnime) {
+      for (const anime of searchData.animes) {
         let originBangumiUrl = new URL(req.url.replace("/match", `bangumi/${anime.bangumiId}`));
         const bangumiRes = await getBangumi(originBangumiUrl.pathname);
         const bangumiData = await bangumiRes.json();
         log("info", bangumiData);
-        if (season && episode && bangumiData.bangumi.episodes.length >= episode) {
-          // 先判断season
-          if (matchSeason(anime, title, season)) {
-            resEpisode = bangumiData.bangumi.episodes[episode-1];
-            resAnime = anime;
-            break;
-          }
-        } else if (bangumiData.bangumi.episodes.length > 0) {
+        if (bangumiData.bangumi.episodes.length > 0) {
           resEpisode = bangumiData.bangumi.episodes[0];
           resAnime = anime;
           break;
