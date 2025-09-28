@@ -1,10 +1,18 @@
-# LogVar 弹幕 API 服务器
+<div align="center">
+  <img src="https://i.mji.rip/2025/09/27/eedc7b701c0fa5c1f7c175b22f441ad9.jpeg" alt="Clash" width="128" style="border-radius: 16px;" />
+</div>
+
+<h2 align="center">
+LogVar 弹幕 API 服务器
+</h2>
 
 [![GitHub](https://img.shields.io/badge/-GitHub-181717?logo=github)](https://github.com/huangxd-/damnu_api)
 ![GitHub License](https://img.shields.io/github/license/huangxd-/danmu_api)
 ![Docker Pulls](https://img.shields.io/docker/pulls/logvar/danmu-api)
 [![telegram](https://img.shields.io/static/v1?label=telegram&message=telegram_channel&color=blue)](https://t.me/logvar_danmu_channel)
 [![telegram](https://img.shields.io/static/v1?label=telegram&message=telegram_group&color=blue)](https://t.me/logvar_danmu_group)
+
+---
 
 一个人人都能部署的基于 js 的弹幕 API 服务器，支持爱优腾芒哔人弹幕直接获取，兼容弹弹play的搜索、详情查询和弹幕获取接口，并提供日志记录，支持vercel/cloudflare/docker/claw等部署方式，不用提前下载弹幕，没有nas或小鸡也能一键部署。
 
@@ -191,14 +199,35 @@ Settings > Functions > Advanced Setting > Function Region 切换为 Hong Kong，
 | VOD_SERVER      | 【可选】vod查询站点，不填默认为`https://www.caiji.cyou`       |
 | BILIBILI_COOKIE      | 【可选】b站cookie（填入后能抓取完整弹幕），如 `buvid3=E2BCA ... eao6; theme-avatar-tip-show=SHOWED`，请自行通过浏览器或抓包工具抓取    |
 | YOUKU_CONCURRENCY    | 【可选】youku弹幕请求并发数，用于加快youku弹幕请求速度，不填默认为`8`，最高`16`       |
-| SOURCE_ORDER    | 【可选】源排序，用于按源对返回资源的排序（注意：先后顺序会影响自动匹配最终的返回），默认是`vod,360,renren`，表示vod数据排在最前，renren数据排在最后，示例`360,renren`：只返回360数据和renren数据，且360数据靠前       |
+| SOURCE_ORDER    | 【可选】源排序，用于按源对返回资源的排序（注意：先后顺序会影响自动匹配最终的返回），默认是`vod,360,renren`，表示vod数据排在最前，renren数据排在最后，示例：`360,renren`：只返回360数据和renren数据，且360数据靠前       |
+| PLATFORM_ORDER    | 【可选】自动匹配优选平台，按顺序优先返回指定平台弹幕，默认为空，即返回第一个满足条件的平台，示例：`bilibili1,qq`，表示如果有b站的播放源，则优先返回b站的弹幕，否则就返回腾讯的弹幕，两者都没有，则返回第一个满足条件的平台；当前可选择的平台字段有 `qiyi, bilibili1, imgo, youku, qq, renren`  |
+| EPISODE_TITLE_FILTER    | 【可选】剧集标题正则过滤，按正则关键字对剧集或综艺的集标题进行过滤，适用于过滤一些预告或综艺非正式集，默认值如下 |
+| BLOCKED_WORDS    | 【可选】弹幕屏蔽词列表，默认为空，示例如下       |
+
+```regex
+# EPISODE_TITLE_FILTER 默认值
+(特别|惊喜|纳凉)?企划|合伙人手记|超前|速览|vlog|reaction|纯享|加更|抢先|抢鲜|预告|花絮|特辑|彩蛋|专访|幕后|直播|未播|衍生|番外|会员|片花|精华|看点|速看|解读|影评|解说|吐槽|盘点|拍摄花絮|制作花絮|幕后花絮|未播花絮|独家花絮|花絮特辑|先导预告|终极预告|正式预告|官方预告|彩蛋片段|删减片段|未播片段|番外彩蛋|精彩片段|精彩看点|精彩回顾|精彩集锦|看点解析|看点预告|NG镜头|NG花絮|番外篇|番外特辑|制作特辑|拍摄特辑|幕后特辑|导演特辑|演员特辑|片尾曲|插曲|主题曲|背景音乐|OST|音乐MV|歌曲MV|前季回顾|剧情回顾|往期回顾|内容总结|剧情盘点|精选合集|剪辑合集|混剪视频|独家专访|演员访谈|导演访谈|主创访谈|媒体采访|发布会采访|抢先看|抢先版|试看版|短剧|精编|会员版|Plus|独家版|特别版|短片|合唱|陪看|MV|高清正片|发布会|.{2,}篇|观察室|上班那点事儿|周top|赛段|直拍|REACTION|VLOG|全纪录
+```
+
+```regex
+# BLOCKED_WORDS 示例值
+/.{20,}/,/^\d{2,4}[-/.]\d{1,2}[-/.]\d{1,2}([日号.]*)?$/,/([a-zA-Z\u4e00-\u9fa5])\1{2,}/,/\s/,/[0-9]+\.*[0-9]*\s*(w|万)+\s*(\+|个|人|在看)+/
+
+# 注释如下：
+/.{20,}/  # 屏蔽20字符及以上的弹幕
+/^\d{2,4}【年|\-|\.】\-ld{1,2}【月|\-|\.】\-ld{1,2}【日|号|.】*$  # 屏蔽日期弹幕
+/(【a-zA-Z\u4e00-\u9fa5】)\1{2,}  # 屏蔽单个汉字或者字母连续出现3次及以上的弹幕
+/\s/  # 屏蔽带空格的弹幕
+/【0-9】+\.*【0-9】*\s*(w|万)+\s*(\+|个|人|在看)+/  # 屏蔽几点几万在看的弹幕
+```
 
 ## 项目结构
 ```
 danmu_api/
 ├── .github/
 │   └── workflows/
-│       └── docker-image.yml
+│       ├── docker-image.yml
+│       └── sync_fork.yml # vercel自动同步配置文件
 ├── danmu_api/
 │   ├── esm-shim.js     # Node.js低版本兼容层
 │   ├── server.js       # 本地node启动脚本
@@ -206,12 +235,15 @@ danmu_api/
 │   ├── worker.test.js  # 测试文件
 ├── node-functions/
 │   ├── [[...path]]..js # edgeone pages 所有路由跳转指向index
-│   ├── index.js        # edgeone pages 中间处理逻辑
+│   └── index.js        # edgeone pages 中间处理逻辑
 ├── .gitignore
 ├── Dockerfile
+├── edgeone.json        # edgeone pages 配置文件
+├── LICENSE
 ├── package.json
-├── vercel.json
 ├── README.md
+├── vercel.json         # vercel 配置文件
+└── wrangler.toml       # cloudflare worker 配置文件
 ```
 
 ## 注意事项
@@ -226,7 +258,16 @@ danmu_api/
 - 推荐vercel和claw部署，cloudflare好像不稳定，当然最稳定还是自己本地docker部署最佳。
 
 ### 关联项目
-[danmu_api 自动同步部署方案 - 永远保持最新版本！实时同步原作者更新](https://github.com/xiaoyao20084321/log-var-danmu-deployment-guide)
+[喂饭教程1：danmu_api vercel 自动同步部署方案 - 永远保持最新版本！实时同步原作者更新](https://github.com/xiaoyao20084321/log-var-danmu-deployment-guide)
+
+[喂饭教程2：logvar弹幕搭建教程（docker/claw）](https://blog.tencentx.de/p/logvar%E5%BC%B9%E5%B9%95%E6%90%AD%E5%BB%BA%E6%95%99%E7%A8%8B%E5%96%82%E9%A5%AD%E7%89%88/)
+
+### 部署完成后在播放器填写后弹幕未生效自主排查步骤
+以API示例 `http://192.168.1.7:9321/87654321` 为例
+1. 首先确认你的api部署成功 访问 `http://192.168.1.7:9321/87654321` 有json输出
+2. 检查你在播放器的填写是否正确，有无多余空格等
+3. 播放器请求后，查看 `http://192.168.1.7:9321/87654321/api/logs` 日志，看请求是否有报错，比如有用户在自己软路由上搭建，但走了全局代理，导致人人等访问不了，请确保走直连
+4. 如果你播放的影片片名不规范，很可能搜不到，请确保片名规范
 
 ### 贡献者
 <a href="https://github.com/huangxd-/danmu_api/graphs/contributors">
