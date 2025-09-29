@@ -1,6 +1,6 @@
 // 全局状态（Cloudflare 和 Vercel 都可能重用实例）
 // ⚠️ 不是持久化存储，每次冷启动会丢失
-const VERSION = "1.1.4";
+const VERSION = "1.1.5";
 let animes = [];
 let episodeIds = [];
 let episodeNum = 10001; // 全局变量，用于自增 ID
@@ -137,7 +137,7 @@ const DEFAULT_EPISODE_TITLE_FILTER = "(特别|惊喜|纳凉)?企划|合伙人手
   "NG镜头|NG花絮|番外篇|番外特辑|制作特辑|拍摄特辑|幕后特辑|导演特辑|演员特辑|片尾曲|插曲|主题曲|背景音乐|OST|音乐MV|歌曲MV|前季回顾|" +
   "剧情回顾|往期回顾|内容总结|剧情盘点|精选合集|剪辑合集|混剪视频|独家专访|演员访谈|导演访谈|主创访谈|媒体采访|发布会采访|抢先看|抢先版|" +
   "试看版|短剧|精编|会员版|Plus|独家版|特别版|短片|合唱|陪看|MV|高清正片|发布会|.{2,}篇|观察室|上班那点事儿|周top|赛段|直拍|REACTION|" +
-  "VLOG|全纪录"; // 默认 剧集标题正则过滤
+  "VLOG|全纪录|开播|先导|总宣|展演"; // 默认 剧集标题正则过滤
 let episodeTitleFilter;
 
 // 这里既支持 Cloudflare env，也支持 Node process.env
@@ -3400,6 +3400,40 @@ async function handleRequest(req, env) {
 
   log("log", path);
 
+  // 智能处理API路径前缀，确保最终有一个正确的 /api/v2
+  if (path !== "/" && path !== "/api/logs") {
+      log('log', `[Path Check] Starting path normalization for: "${path}"`);
+      const pathBeforeCleanup = path; // 保存清理前的路径检查是否修改
+      
+      // 1. 清理：应对“用户填写/api/v2”+“客户端添加/api/v2”导致的重复前缀
+      while (path.startsWith('/api/v2/api/v2/')) {
+          log('log', `[Path Check] Found redundant /api/v2 prefix. Cleaning...`);
+          // 从第二个 /api/v2 的位置开始截取，相当于移除第一个
+          path = path.substring('/api/v2'.length);
+      }
+      
+      // 打印日志：只有在发生清理时才显示清理后的路径，否则显示“无需清理”
+      if (path !== pathBeforeCleanup) {
+          log('log', `[Path Check] Path after cleanup: "${path}"`);
+      } else {
+          log('log', `[Path Check] Path after cleanup: No cleanup needed.`);
+      }
+      
+      // 2. 补全：如果路径缺少前缀（例如请求原始路径为 /search/anime），则补全
+      const pathBeforePrefixCheck = path;
+      if (!path.startsWith('/api/v2') && path !== '/' && !path.startsWith('/api/logs')) {
+          log('log', `[Path Check] Path is missing /api/v2 prefix. Adding...`);
+          path = '/api/v2' + path;
+      }
+        
+      // 打印日志：只有在发生添加前缀时才显示添加后的路径，否则显示“无需补全”
+      if (path === pathBeforePrefixCheck) {
+          log('log', `[Path Check] Prefix Check: No prefix addition needed.`);
+      }
+      
+      log('log', `[Path Check] Final normalized path: "${path}"`);
+  }
+  
   // GET /
   if (path === "/" && method === "GET") {
     return handleHomepage();
