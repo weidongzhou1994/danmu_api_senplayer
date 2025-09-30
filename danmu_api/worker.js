@@ -1,6 +1,6 @@
 // 全局状态（Cloudflare 和 Vercel 都可能重用实例）
 // ⚠️ 不是持久化存储，每次冷启动会丢失
-const VERSION = "1.1.5";
+const VERSION = "1.1.6";
 let animes = [];
 let episodeIds = [];
 let episodeNum = 10001; // 全局变量，用于自增 ID
@@ -142,13 +142,20 @@ let episodeTitleFilter;
 
 // 这里既支持 Cloudflare env，也支持 Node process.env
 function resolveEpisodeTitleFilter(env) {
-  // 获取环境变量中的 PLATFORM_ORDER 配置
+  // 获取默认关键字
   let keywords = DEFAULT_EPISODE_TITLE_FILTER;
 
+  // 检查环境变量并扩展关键字
   if (env && env.EPISODE_TITLE_FILTER) {
-    keywords = env.EPISODE_TITLE_FILTER;  // Cloudflare Workers
+    const customFilter = env.EPISODE_TITLE_FILTER.replace(/^\|+|\|+$/g, ''); // 去除前后 | 字符
+    if (customFilter) {
+      keywords = `${keywords}|${customFilter}`; // Cloudflare Workers
+    }
   } else if (typeof process !== "undefined" && process.env?.EPISODE_TITLE_FILTER) {
-    keywords = process.env.EPISODE_TITLE_FILTER;  // Vercel / Node
+    const customFilter = process.env.EPISODE_TITLE_FILTER.replace(/^\|+|\|+$/g, ''); // 去除前后 | 字符
+    if (customFilter) {
+      keywords = `${keywords}|${customFilter}`; // Vercel / Node
+    }
   }
 
   try {
@@ -159,6 +166,8 @@ function resolveEpisodeTitleFilter(env) {
     log("warn", "Invalid EPISODE_TITLE_FILTER format, using default.");
     keywords = DEFAULT_EPISODE_TITLE_FILTER;
   }
+
+  log("log", "EPISODE_TITLE_FILTER keywords: ", keywords);
 
   // 返回由过滤后的关键字生成的正则表达式
   return new RegExp(
