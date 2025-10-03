@@ -1,6 +1,6 @@
 // 全局状态（Cloudflare 和 Vercel 都可能重用实例）
 // ⚠️ 不是持久化存储，每次冷启动会丢失
-const VERSION = "1.2.1";
+const VERSION = "1.2.2";
 let animes = [];
 let episodeIds = [];
 let episodeNum = 10001; // 全局变量，用于自增 ID
@@ -987,7 +987,9 @@ function convertToAsciiSum(sid) {
   for (let i = 0; i < sid.length; i++) {
     hash = (hash * 33) ^ sid.charCodeAt(i);
   }
-  return hash >>> 0;
+  hash = (hash >>> 0) % 9999999;
+  // 确保至少 5 位
+  return hash < 10000 ? hash + 10000 : hash;
 }
 
 function canConvertToNumber(url) {
@@ -3593,6 +3595,8 @@ async function handleRequest(req, env) {
   const url = new URL(req.url);
   let path = url.pathname;
   const method = req.method;
+
+  log("info", `request url: ${JSON.stringify(url)}`);
 
   function handleHomepage() {
     log("log", "Accessed homepage with repository information");
