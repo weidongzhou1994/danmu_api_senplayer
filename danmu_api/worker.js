@@ -1,6 +1,6 @@
 // 全局状态（Cloudflare 和 Vercel 都可能重用实例）
 // ⚠️ 不是持久化存储，每次冷启动会丢失
-const VERSION = "1.2.2";
+const VERSION = "1.2.3";
 let animes = [];
 let episodeIds = [];
 let episodeNum = 10001; // 全局变量，用于自增 ID
@@ -9,7 +9,8 @@ let episodeNum = 10001; // 全局变量，用于自增 ID
 const logBuffer = [];
 const MAX_LOGS = 500;
 const MAX_ANIMES = 100;
-const allowedPlatforms = ["qiyi", "bilibili1", "imgo", "youku", "qq"];
+const vodAllowedPlatforms = ["qiyi", "bilibili1", "imgo", "youku", "qq"];
+const allowedPlatforms = ["qiyi", "bilibili1", "imgo", "youku", "qq", "renren", "hanjutv"];
 
 // =====================
 // 环境变量处理
@@ -112,14 +113,11 @@ function resolvePlatformOrder(env) {
     platformOrder = process.env.PLATFORM_ORDER;  // Vercel / Node
   }
 
-  // 解析并校验 platformOrder
-  const _allowedPlatforms = ["qiyi", "bilibili1", "imgo", "youku", "qq", "renren", "hanjutv"];
-
   // 转换为数组并去除空格，过滤无效项
   const orderArr = platformOrder
     .split(',')
     .map(s => s.trim())  // 去除空格
-    .filter(s => _allowedPlatforms.includes(s));  // 只保留有效来源
+    .filter(s => allowedPlatforms.includes(s));  // 只保留有效来源
 
   // 如果没有有效的来源，使用默认顺序
   if (orderArr.length === 0) {
@@ -186,6 +184,22 @@ function resolveBlockedWords(env) {
   if (env && env.BLOCKED_WORDS) return env.BLOCKED_WORDS;         // Cloudflare Workers
   if (typeof process !== "undefined" && process.env?.BLOCKED_WORDS) return process.env.BLOCKED_WORDS; // Vercel / Node
   return DEFAULT_BLOCKED_WORDS;
+}
+
+// 分钟内合并去重（默认 1，最大值30，0表示不去重）
+const DEFAULT_GROUP_MINUTE = 1;
+let groupMinute = DEFAULT_GROUP_MINUTE;
+
+function resolveGroupMinute(env) {
+  if (env && env.GROUP_MINUTE) {
+    const n = parseInt(env.GROUP_MINUTE, 10);
+    if (!Number.isNaN(n) && n > 0) return Math.min(n, 30);
+  }
+  if (typeof process !== "undefined" && process.env?.GROUP_MINUTE) {
+    const n = parseInt(process.env.GROUP_MINUTE, 10);
+    if (!Number.isNaN(n) && n > 0) return Math.min(n, 30);
+  }
+  return Math.min(DEFAULT_GROUP_MINUTE, 30);
 }
 
 // =====================
@@ -574,6 +588,69 @@ function printFirst200Chars(data) {
   log("log", dataToPrint.slice(0, 200));  // 打印前200个字符
 }
 
+function groupDanmusByMinute(filteredDanmus, n) {
+  // 如果 n 为 0，直接返回原始数据
+  if (n === 0) {
+    return filteredDanmus.map(danmu => ({
+      ...danmu,
+      t: danmu.t !== undefined ? danmu.t : parseFloat(danmu.p.split(',')[0])
+    }));
+  }
+
+  // 按 n 分钟分组
+  const groupedByMinute = filteredDanmus.reduce((acc, danmu) => {
+    // 获取时间：优先使用 t 字段，如果没有则使用 p 的第一个值
+    const time = danmu.t !== undefined ? danmu.t : parseFloat(danmu.p.split(',')[0]);
+    // 计算分组（每 n 分钟一组，向下取整）
+    const group = Math.floor(time / (n * 60));
+
+    // 初始化分组
+    if (!acc[group]) {
+      acc[group] = [];
+    }
+
+    // 添加到对应分组
+    acc[group].push({ ...danmu, t: time });
+    return acc;
+  }, {});
+
+  // 处理每组的弹幕
+  const result = Object.keys(groupedByMinute).map(group => {
+    const danmus = groupedByMinute[group];
+
+    // 按消息内容分组
+    const groupedByMessage = danmus.reduce((acc, danmu) => {
+      const message = danmu.m.split(' X')[0]; // 提取原始消息（去除 Xn 后缀）
+      if (!acc[message]) {
+        acc[message] = {
+          count: 0,
+          earliestT: danmu.t,
+          cid: danmu.cid,
+          p: danmu.p
+        };
+      }
+      acc[message].count += 1;
+      // 更新最早时间
+      acc[message].earliestT = Math.min(acc[message].earliestT, danmu.t);
+      return acc;
+    }, {});
+
+    // 转换为结果格式
+    return Object.keys(groupedByMessage).map(message => {
+      const data = groupedByMessage[message];
+      return {
+        cid: data.cid,
+        p: data.p,
+        m: data.count > 1 ? `${message}X${data.count}` : message,
+        t: data.earliestT
+      };
+    });
+  });
+
+  // 展平结果并按时间排序
+  return result.flat().sort((a, b) => a.t - b.t);
+}
+
 function convertToDanmakuJson(contents, platform) {
   let danmus = [];
   let cidCounter = 1;
@@ -633,12 +710,21 @@ function convertToDanmakuJson(contents, platform) {
       }
       // 处理 XML 解析后的格式
       const pValues = item.p.split(",");
-      attributes = [
-        parseFloat(pValues[0]).toFixed(2),
-        pValues[1] || 0,
-        pValues[3] || 16777215,
-        `[${platform}]`
-      ].join(",");
+      if (pValues.length === 4) {
+        attributes = [
+          parseFloat(pValues[0]).toFixed(2),
+          pValues[1] || 0,
+          pValues[2] || 16777215,
+          `[${platform}]`
+        ].join(",");
+      } else {
+        attributes = [
+          parseFloat(pValues[0]).toFixed(2),
+          pValues[1] || 0,
+          pValues[3] || 16777215,
+          `[${platform}]`
+        ].join(",");
+      }
       m = item.m;
     }
 
@@ -670,11 +756,16 @@ function convertToDanmakuJson(contents, platform) {
     return !regexArray.some(regex => regex.test(item.m)); // 针对 `m` 字段进行匹配
   });
 
+  // 按n分钟内去重
+  log("log", "去重分钟数:", groupMinute);
+  const groupedDanmus = groupDanmusByMinute(filteredDanmus, groupMinute);
+
   log("log", "danmus_original:", danmus.length);
-  log("log", "danmus:", filteredDanmus.length);
+  log("log", "danmus_filter:", filteredDanmus.length);
+  log("log", "danmus_group:", groupedDanmus.length);
   // 输出前五条弹幕
-  log("log", "Top 5 danmus:", JSON.stringify(filteredDanmus.slice(0, 5), null, 2));
-  return filteredDanmus;
+  log("log", "Top 5 danmus:", JSON.stringify(groupedDanmus.slice(0, 5), null, 2));
+  return groupedDanmus;
 }
 
 function buildQueryString(params) {
@@ -980,6 +1071,98 @@ const extractEpTitle = (title) => {
   const match = title.match(/#(.*?)#/);  // 提取#号之间的内容
   return match ? match[1] : null;  // 返回#号中的内容，若没有则返回null
 };
+
+// 解析fileName，提取动漫名称和平台偏好
+function parseFileName(fileName) {
+  if (!fileName || typeof fileName !== 'string') {
+    return { cleanFileName: '', preferredPlatform: '' };
+  }
+
+  const atIndex = fileName.indexOf('@');
+  if (atIndex === -1) {
+    // 没有@符号，直接返回原文件名
+    return { cleanFileName: fileName.trim(), preferredPlatform: '' };
+  }
+
+  // 找到@符号，需要分离平台标识
+  const beforeAt = fileName.substring(0, atIndex).trim();
+  const afterAt = fileName.substring(atIndex + 1).trim();
+
+  // 检查@符号后面是否有季集信息（如 S01E01）
+  const seasonEpisodeMatch = afterAt.match(/^(\w+)\s+(S\d+E\d+)$/);
+  if (seasonEpisodeMatch) {
+    // 格式：动漫名称@平台 S01E01
+    const platform = seasonEpisodeMatch[1];
+    const seasonEpisode = seasonEpisodeMatch[2];
+    return {
+      cleanFileName: `${beforeAt} ${seasonEpisode}`,
+      preferredPlatform: normalizePlatformName(platform)
+    };
+  } else {
+    // 检查@符号前面是否有季集信息
+    const beforeAtMatch = beforeAt.match(/^(.+?)\s+(S\d+E\d+)$/);
+    if (beforeAtMatch) {
+      // 格式：动漫名称 S01E01@平台
+      const title = beforeAtMatch[1];
+      const seasonEpisode = beforeAtMatch[2];
+      return {
+        cleanFileName: `${title} ${seasonEpisode}`,
+        preferredPlatform: normalizePlatformName(afterAt)
+      };
+    } else {
+      // 格式：动漫名称@平台（没有季集信息）
+      return {
+        cleanFileName: beforeAt,
+        preferredPlatform: normalizePlatformName(afterAt)
+      };
+    }
+  }
+}
+
+// 将用户输入的平台名称映射为标准平台名称
+function normalizePlatformName(inputPlatform) {
+  if (!inputPlatform || typeof inputPlatform !== 'string') {
+    return '';
+  }
+
+  const input = inputPlatform.trim();
+
+  // 直接返回输入的平台名称（如果有效）
+  if (allowedPlatforms.includes(input)) {
+    return input;
+  }
+
+  // 如果输入的平台名称无效，返回空字符串
+  return '';
+}
+
+// 根据指定平台创建动态平台顺序
+function createDynamicPlatformOrder(preferredPlatform) {
+  if (!preferredPlatform) {
+    return [...platformOrderArr]; // 返回默认顺序的副本
+  }
+
+  // 验证平台是否有效
+  if (!allowedPlatforms.includes(preferredPlatform)) {
+    log("warn", `Invalid platform: ${preferredPlatform}, using default order`);
+    return [...platformOrderArr];
+  }
+
+  // 创建新的平台顺序，将指定平台放在最前面
+  const dynamicOrder = [preferredPlatform];
+
+  // 添加其他平台（排除已指定的平台）
+  for (const platform of platformOrderArr) {
+    if (platform !== preferredPlatform && platform !== null) {
+      dynamicOrder.push(platform);
+    }
+  }
+
+  // 最后添加 null（用于回退逻辑）
+  dynamicOrder.push(null);
+
+  return dynamicOrder;
+}
 
 // djb2 哈希算法将string转成id
 function convertToAsciiSum(sid) {
@@ -2552,35 +2735,17 @@ function parseRRSPPFields(pField) {
   return { timestamp, mode, size, color, userId, contentId };
 }
 
-function formatComments(items) {
-  const unique = {};
-  for(const it of items){
-    const text = String(it.d||"");
-    const meta = parseRRSPPFields(it.p);
-    if(!unique[meta.contentId]) unique[meta.contentId] = { content: text, ...meta };
-  }
-
-  const grouped = {};
-  for(const c of Object.values(unique)){
-    if(!grouped[c.content]) grouped[c.content] = [];
-    grouped[c.content].push(c);
-  }
-
-  const processed = [];
-  for(const [content, group] of Object.entries(grouped)){
-    if(group.length===1) processed.push(group[0]);
-    else{
-      const first = group.reduce((a,b)=>a.timestamp<b.timestamp?a:b);
-      processed.push({...first, content:`${first.content} X${group.length}`});
-    }
-  }
-
-  return processed.map(c=>({
-    cid: Number(c.contentId),
-    p: `${c.timestamp.toFixed(2)},${c.mode},${c.color},[renren]`,
-    m: c.content,
-    t: c.timestamp
-  }));
+function formatRenrenComments(items) {
+  return items.map(item => {
+    const text = String(item.d || "");
+    const meta = parseRRSPPFields(item.p);
+    return {
+      cid: Number(meta.contentId),
+      p: `${meta.timestamp.toFixed(2)},${meta.mode},${meta.color},[renren]`,
+      m: text,
+      t: meta.timestamp
+    };
+  });
 }
 
 async function getRenRenComments(episodeId, progressCallback=null){
@@ -2589,12 +2754,10 @@ async function getRenRenComments(episodeId, progressCallback=null){
   const raw = await fetchEpisodeDanmu(episodeId);
   if(progressCallback) await progressCallback(85,`原始弹幕 ${raw.length} 条，正在规范化`);
   log("log", `原始弹幕 ${raw.length} 条，正在规范化`);
-  const formatted = formatComments(raw);
+  const formatted = formatRenrenComments(raw);
   if(progressCallback) await progressCallback(100,`弹幕处理完成，共 ${formatted.length} 条`);
   log("log", `弹幕处理完成，共 ${formatted.length} 条`);
-  // 输出前五条弹幕
-  log("log", "Top 5 danmus:", JSON.stringify(formatted.slice(0, 5), null, 2));
-  return formatted;
+  return convertToDanmakuJson(formatted, "renren");
 }
 
 // ---------------------
@@ -2772,9 +2935,7 @@ async function getHanjutvComments(pid, progressCallback=null){
   const formatted = formatHanjutvComments(raw);
   if(progressCallback) await progressCallback(100,`弹幕处理完成，共 ${formatted.length} 条`);
   log("log", `弹幕处理完成，共 ${formatted.length} 条`);
-  // 输出前五条弹幕
-  log("log", "Top 5 danmus:", JSON.stringify(formatted.slice(0, 5), null, 2));
-  return formatted;
+  return convertToDanmakuJson(formatted, "hanjutv");
 }
 
 // =====================
@@ -2917,7 +3078,7 @@ async function handleVodAnimes(animesVod, curAnimes) {
 
     const vodPlayUrlList = anime.vod_play_url.split("$$$");
     const validIndices = vodPlayFromList
-        .map((item, index) => allowedPlatforms.includes(item) ? index : -1)
+        .map((item, index) => vodAllowedPlatforms.includes(item) ? index : -1)
         .filter(index => index !== -1);
 
     let links = [];
@@ -2968,7 +3129,7 @@ async function handle360Animes(animes360, curAnimes) {
     let links = [];
     if (anime.cat_name === "电影") {
       for (const key of Object.keys(anime.playlinks)) {
-        if (allowedPlatforms.includes(key)) {
+        if (vodAllowedPlatforms.includes(key)) {
           links.push({
             "name": key,
             "url": anime.playlinks[key],
@@ -2977,7 +3138,7 @@ async function handle360Animes(animes360, curAnimes) {
         }
       }
     } else if (anime.cat_name === "电视剧" || anime.cat_name === "动漫") {
-      if (allowedPlatforms.includes(anime.seriesSite)) {
+      if (vodAllowedPlatforms.includes(anime.seriesSite)) {
         for (let i = 0; i < anime.seriesPlaylinks.length; i++) {
           const item = anime.seriesPlaylinks[i];
           links.push({
@@ -2990,7 +3151,7 @@ async function handle360Animes(animes360, curAnimes) {
     } else if (anime.cat_name === "综艺") {
       const zongyiLinks = await Promise.all(
           Object.keys(anime.playlinks_year).map(async (site) => {
-            if (allowedPlatforms.includes(site)) {
+            if (vodAllowedPlatforms.includes(site)) {
               const yearLinks = await Promise.all(
                   anime.playlinks_year[site].map(async (year) => {
                     return await get360Zongyi(anime.id, site, year);
@@ -3288,13 +3449,15 @@ async function matchAnime(url, req) {
       );
     }
 
-    // 这里可以继续处理 query，比如调用其他服务或数据库查询
+    // 解析fileName，提取平台偏好
+    const { cleanFileName, preferredPlatform } = parseFileName(fileName);
     log("info", `Processing anime match for query: ${fileName}`);
+    log("info", `Parsed cleanFileName: ${cleanFileName}, preferredPlatform: ${preferredPlatform}`);
 
     const regex = /^(.+?)\s+S(\d+)E(\d+)$/;
-    const match = fileName.match(regex);
+    const match = cleanFileName.match(regex);
 
-    let title = match ? match[1] : fileName;
+    let title = match ? match[1] : cleanFileName;
     let season = match ? parseInt(match[2]) : null;
     let episode = match ? parseInt(match[3]) : null;
 
@@ -3308,13 +3471,19 @@ async function matchAnime(url, req) {
     let resAnime;
     let resEpisode;
 
-    log("info", `platformOrderArr: ${platformOrderArr}`);
-    for (const platform of platformOrderArr) {
+    // 根据指定平台创建动态平台顺序
+    const dynamicPlatformOrder = createDynamicPlatformOrder(preferredPlatform);
+    log("info", `Original platformOrderArr: ${platformOrderArr}`);
+    log("info", `Dynamic platformOrder: ${dynamicPlatformOrder}`);
+    log("info", `Preferred platform: ${preferredPlatform || 'none'}`);
+
+    for (const platform of dynamicPlatformOrder) {
       const __ret = await matchAniAndEp(season, episode, searchData, title, req, platform);
       resEpisode = __ret.resEpisode;
       resAnime = __ret.resAnime;
 
       if (resAnime) {
+        log("info", `Found match with platform: ${platform || 'default'}`);
         break;
       }
     }
@@ -3574,7 +3743,7 @@ async function getComment(path) {
   }
 
   // 如果弹幕为空，则请求第三方弹幕服务器作为兜底
-  if (danmus.length === 0) {
+  if (danmus.length === 0 && urlPattern.test(url)) {
     danmus = await fetchOtherServer(url);
   }
 
@@ -3591,6 +3760,7 @@ async function handleRequest(req, env) {
   platformOrderArr = resolvePlatformOrder(env);
   episodeTitleFilter = resolveEpisodeTitleFilter(env);
   blockedWords = resolveBlockedWords(env);
+  groupMinute = resolveGroupMinute(env);
 
   const url = new URL(req.url);
   let path = url.pathname;
